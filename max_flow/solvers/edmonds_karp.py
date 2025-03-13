@@ -1,5 +1,4 @@
 from collections import deque
-import numpy as np
 from typing import Optional, List
 from ..graph import Graph
 
