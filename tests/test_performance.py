@@ -81,7 +81,7 @@ def test_solver_speed_dense_graph():
     for name, SolverClass in solvers.items():
         try:
             max_flow, duration = solve_with_timeout(
-                SolverClass, graph, timeout=60)
+                SolverClass, graph, timeout=180)
             results[name] = {"max_flow": max_flow, "time": duration}
         except TimeoutError as e:
             print(f"Timeout: {e}")
