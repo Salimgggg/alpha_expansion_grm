@@ -1,52 +1,57 @@
-from collections import deque
-from typing import Optional, List
-from ..graph import Graph
+import numpy as np
+from collections import defaultdict
 
 
 class DinicSolver:
-    def __init__(self, graph: Graph):
+    def __init__(self, graph):
         self.graph = graph
-        self.size = graph.size
-        self.capacity = graph.capacity
-        self.flow = graph.reset_flow()
-        self.level = [-1] * self.size
+        self.size = graph.capacity.shape[0]
+        self.source = graph.source
+        self.sink = graph.sink
+        self.level = np.full(self.size, -1, dtype=int)
+        self.iter = np.zeros(self.size, dtype=int)
+        self.flow = defaultdict(dict)
 
-    def bfs_level(self, source: int, sink: int) -> bool:
-        self.level = [-1] * self.size
-        self.level[source] = 0
-        queue = deque([source])
-        while queue:
-            u = queue.popleft()
-            for v in range(self.size):
-                if self.level[v] < 0 and self.capacity[u, v] - self.flow[u, v] > 0:
+    def bfs_level(self):
+        queue = [self.source]
+        self.level.fill(-1)
+        self.level[self.source] = 0
+
+        for u in queue:
+            neighbors = self.graph.capacity[u].nonzero()[1]
+            for v in neighbors:
+                if self.level[v] == -1 and self.graph.capacity[u, v] > self.flow.get(u, {}).get(v, 0):
                     self.level[v] = self.level[u] + 1
                     queue.append(v)
-        return self.level[sink] >= 0
 
-    def send_flow(self, u: int, sink: int, flow: int, start: List[int]) -> int:
-        if u == sink:
+        return self.level[self.sink] != -1
+
+    def send_flow(self, u, flow):
+        if u == self.sink:
             return flow
-        for v in range(start[u], self.size):
-            start[u] = v
-            if self.level[v] == self.level[u] + 1 and self.capacity[u, v] - self.flow[u, v] > 0:
-                curr_flow = min(flow, self.capacity[u, v] - self.flow[u, v])
-                temp_flow = self.send_flow(v, sink, curr_flow, start)
-                if temp_flow > 0:
-                    self.flow[u, v] += temp_flow
-                    self.flow[v, u] -= temp_flow
-                    return temp_flow
+
+        neighbors = self.graph.capacity[u].nonzero()[1]
+        while self.iter[u] < len(neighbors):
+            v = neighbors[self.iter[u]]
+            residual = self.graph.capacity[u, v] - \
+                self.flow.get(u, {}).get(v, 0)
+
+            if self.level[v] == self.level[u] + 1 and residual > 0:
+                min_flow = min(flow, residual)
+                pushed = self.send_flow(v, min_flow)
+
+                if pushed > 0:
+                    self.flow[u][v] = self.flow.get(u, {}).get(v, 0) + pushed
+                    self.flow[v][u] = self.flow.get(v, {}).get(u, 0) - pushed
+                    return pushed
+
+            self.iter[u] += 1
         return 0
 
-    def solve(self, source: Optional[int] = None, sink: Optional[int] = None) -> int:
-        source = source if source is not None else self.graph.source
-        sink = sink if sink is not None else self.graph.sink
+    def solve(self):
         max_flow = 0
-
-        while self.bfs_level(source, sink):
-            start = [0] * self.size
-            while True:
-                flow = self.send_flow(source, sink, float('inf'), start)
-                if flow <= 0:
-                    break
+        while self.bfs_level():
+            self.iter.fill(0)
+            while flow := self.send_flow(self.source, float('inf')):
                 max_flow += flow
         return max_flow
