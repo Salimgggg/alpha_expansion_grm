@@ -1,116 +1,115 @@
 import numpy as np
 import cv2
-from ..max_flow.graph import Graph
-from ..max_flow.solvers.dinic import DinicSolver
+import sys
+import os
+sys.path.append(os.path.abspath("../"))  # Ajoute le dossier parent
 
+from max_flow.graph import Graph
+from max_flow.solvers.dinic import DinicSolver
 
-class AlphaExpansion:
+import numpy as np
+import cv2
+from collections import deque
+
+class AlphaExpansionDinic:
     def __init__(self, image_path, source_weight=10, sink_weight=10, sigma=15, source_label=255):
         """
-        Segmentation d'image noir et blanc (niveaux de gris) par Graph-Cut avec DinicSolver.
+        Segmentation par Graph-Cut utilisant votre solver Dinic.
+        On construit un graphe avec deux nœuds terminaux (source et puits)
+        et les pixels intermédiaires.
         """
-        self.image_path = image_path
-        self.source_weight = source_weight
-        self.sink_weight = sink_weight
-        self.sigma = sigma
-        self.source_label = source_label
-
-        # Chargement de l'image en niveaux de gris
-        self.image = cv2.imread(self.image_path, cv2.IMREAD_GRAYSCALE)
+        self.image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if self.image is None:
-            raise ValueError(
-                f"Impossible de charger l'image depuis {self.image_path}")
+            raise ValueError(f"Impossible de charger l'image depuis {image_path}")
+        self.image = cv2.resize(self.image, (64,64))
 
         self.height, self.width = self.image.shape
-        # Nombre total de nœuds : pixels + source + sink
-        self.size = self.height * self.width + 2
-        self.source = self.height * self.width  # Indice du nœud source
-        self.sink = self.height * self.width + 1  # Indice du nœud sink
-
-        # Initialisation du graphe (suppose que Graph accepte une taille et peut gérer capacity)
-        self.graph = Graph(size=self.size, source=self.source, sink=self.sink)
+        self.num_pixels = self.height * self.width
+        # On ajoute 2 nœuds : source (indice 0) et puits (dernier indice)
+        self.N = self.num_pixels + 2  
+        self.source = 0
+        self.sink = self.N - 1
+        self.sigma = sigma
+        self.source_weight = source_weight
+        self.sink_weight = sink_weight
+        self.source_label = source_label
+        # Matrice de capacité initialisée à zéro (taille N x N)
+        self.capacity = np.zeros((self.N, self.N), dtype=np.int64)
         self.segmented_image = np.zeros_like(self.image, dtype=np.uint8)
 
     def neighbor_weight(self, intensity1, intensity2):
         """
-        Calcule le poids entre deux pixels voisins selon leur différence d'intensité.
+        Calcule le poids entre deux pixels voisins en fonction de leur différence d’intensité.
         """
         diff = intensity1 - intensity2
         return np.exp(- (diff ** 2) / (2 * (self.sigma ** 2)))
 
-    def build_graph(self):
+    def build_capacity_matrix(self):
         """
-        Construit le graphe reliant chaque pixel à ses voisins immédiats.
+        Construit la matrice des capacités.
+        Les indices 1 à N-2 représentent les pixels.
+        Pour chaque pixel, on connecte :
+          - Le pixel aux pixels voisins (arêtes bidirectionnelles).
+          - La source vers le pixel et le pixel vers le puits (liens terminaux).
         """
+        scale = 1000  # Pour convertir les poids flottants en entiers
         for y in range(self.height):
             for x in range(self.width):
-                idx = y * self.width + x
+                # L'indice du pixel dans le graphe est décalé de 1 (source=0)
+                idx = 1 + y * self.width + x
                 intensity = float(self.image[y, x])
-
-                # Connexion aux voisins immédiats (haut, bas, gauche, droite)
-                for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                
+                # Connexion avec les voisins (haut, bas, gauche, droite)
+                for dy, dx in [(-1,0), (1,0), (0,-1), (0,1)]:
                     ny, nx = y + dy, x + dx
                     if 0 <= ny < self.height and 0 <= nx < self.width:
-                        n_idx = ny * self.width + nx
+                        n_idx = 1 + ny * self.width + nx
                         neighbor_intensity = float(self.image[ny, nx])
-                        weight = self.neighbor_weight(
-                            intensity, neighbor_intensity)
+                        weight = self.neighbor_weight(intensity, neighbor_intensity)
                         # Ajout d'arêtes bidirectionnelles
-                        self.graph.capacity[idx, n_idx] = weight
-                        self.graph.capacity[n_idx, idx] = weight
-        return self.graph
+                        self.capacity[idx, n_idx] = int(weight * scale)
+                        self.capacity[n_idx, idx] = int(weight * scale)
+                
+                # Calcul des coûts pour les terminaux :
+                intensity_label_current = float(self.segmented_image[y,x])
+                cost_source = int(abs(intensity - self.source_label) * self.source_weight * scale)
+                cost_sink = int(abs(intensity - intensity_label_current) * self.sink_weight * scale)
+                self.capacity[self.source, idx] = cost_sink
+                self.capacity[idx, self.sink] = cost_source
 
-    def add_terminal_nodes(self):
+    def compute_max_flow(self):
         """
-        Ajoute les connexions vers les terminaux : source (objet) et puits (fond).
+        Construit la matrice, crée le graphe et calcule le flot maximal en utilisant l'algorithme de Dinic.
         """
-        for y in range(self.height):
-            for x in range(self.width):
-                idx = y * self.width + x
-                intensity_pixel = float(self.image[y, x])
-                intensity_label_current = float(self.segmented_image[y, x])
-
-                # Calcul des coûts
-                cost_source = abs(intensity_pixel -
-                                  self.source_label) * self.source_weight
-                cost_sink = abs(intensity_pixel -
-                                intensity_label_current) * self.sink_weight
-
-                # Ajout des arêtes terminales
-                self.graph.capacity[self.source,
-                                    idx] = cost_sink  # Source -> Pixel
-                # Pixel -> Sink
-                self.graph.capacity[idx, self.sink] = cost_source
-        return self.graph
-
-    def max_flow(self):
-        """
-        Calcule le flot maximal avec DinicSolver.
-        """
-        solver = DinicSolver(self.graph)
-        self.flow = solver.solve()
-        print(f"Flot maximal : {self.flow}")
-        self.solver = solver  # Stocke le solveur pour accéder au flow plus tard
-        return self.flow
+        self.build_capacity_matrix()
+        graph = Graph(self.capacity)
+        self.solver = DinicSolver(graph)
+        max_flow = self.solver.solve()
+        print("Flot maximal :", max_flow)
+        return max_flow
 
     def segment_nodes(self):
         """
-        Construit l'image segmentée finale après calcul du flot maximal.
+        Après le calcul du flot maximal, effectue une DFS sur le graphe résiduel
+        à partir de la source pour déterminer les pixels accessibles (appartenant à l'objet).
         """
+        visited = [False] * self.solver.graph.size
+        stack = [self.solver.graph.source]
+        while stack:
+            u = stack.pop()
+            if not visited[u]:
+                visited[u] = True
+                for v in range(self.solver.graph.size):
+                    # Si la capacité résiduelle est positive, alors v est accessible depuis u
+                    if not visited[v] and self.solver.graph.capacity[u, v] - self.solver.flow[u, v] > 0:
+                        stack.append(v)
+        
+        # Les pixels sont aux indices de 1 à N-2
         for y in range(self.height):
             for x in range(self.width):
-                idx = y * self.width + x
-                # Si le pixel est connecté à la source (flow[source, idx] > 0), il appartient à l'objet
-                if self.solver.flow[self.source, idx] > 0:
+                idx = 1 + y * self.width + x
+                if visited[idx]:
                     self.segmented_image[y, x] = self.source_label
+                    #print(self.segmented_image)
+
         return self.segmented_image
-
-
-# Exemple d'utilisation
-if __name__ == "__main__":
-    segmenter = AlphaExpansion("chemin/vers/image.jpg")
-    segmenter.build_graph()
-    segmenter.add_terminal_nodes()
-    segmenter.max_flow()
-    result = segmenter.segment_nodes()
-    cv2.imwrite("segmentation_result.jpg", result)
