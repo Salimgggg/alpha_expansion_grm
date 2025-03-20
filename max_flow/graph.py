@@ -1,28 +1,30 @@
 import numpy as np
+from scipy.sparse import lil_matrix
 
 
 class Graph:
     """
-    Classe de base pour représenter un réseau de flot.
-    Stocke la matrice des capacités et quelques informations de base.
+    Classe de base pour représenter un réseau de flot avec une matrice creuse.
     """
 
-    def __init__(self, capacity: np.ndarray):
-        if capacity is None:
-            raise ValueError("La matrice de capacité doit être fournie")
+    def __init__(self, size: int, source: int, sink: int):
+        if size <= 0:
+            raise ValueError("La taille du graphe doit être positive")
 
-        n, m = capacity.shape
-        if n != m:
-            raise ValueError("La matrice de capacité doit être carrée")
+        if not (0 <= source < size) or not (0 <= sink < size):
+            raise ValueError(
+                "Source et Sink doivent être des indices valides du graphe")
 
-        # On copie la matrice pour éviter les modifications inattendues
-        self.capacity = capacity.copy()
-        self.size = n
-        self.source = 0
-        self.sink = n - 1
+        # Utilisation d'une matrice creuse pour stocker les capacités
+        self.capacity = lil_matrix((size, size), dtype=np.float64)
+        self.size = size
+        self.source = source
+        self.sink = sink
 
-    def reset_flow(self) -> np.ndarray:
-        """
-        Retourne une matrice de flot initialisée à zéro.
-        """
-        return np.zeros((self.size, self.size), dtype=np.int64)
+    def reset_flow(self):
+        """Retourne une matrice de flot initialisée à zéro sous forme creuse."""
+        return lil_matrix((self.size, self.size), dtype=np.float64)
+
+    def add_edge(self, u, v, cap):
+        """Ajoute une arête dirigée (u -> v) avec une capacité donnée."""
+        self.capacity[u, v] = cap
