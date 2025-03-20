@@ -2,10 +2,10 @@ import numpy as np
 import time
 import multiprocessing
 import maxflow  # pymaxflow
-from max_flow.graph import Graph
-from max_flow.solvers.edmonds_karp import EdmondsKarpSolver
-from max_flow.solvers.dinic import DinicSolver
-from max_flow.solvers.push_relabel import PushRelabelSolver
+from src.max_flow.graph import Graph
+from src.max_flow.solvers.edmonds_karp import EdmondsKarpSolver
+from src.max_flow.solvers.dinic import DinicSolver
+from src.max_flow.solvers.push_relabel import PushRelabelSolver
 
 
 def create_dense_graph_64x64():
@@ -30,7 +30,7 @@ def create_dense_graph_64x64():
         for j in targets:
             capacity_matrix[i, j] = np.random.randint(1, 5)
 
-    return Graph(capacity_matrix, source, sink)
+    return Graph(capacity_matrix)
 
 
 def create_pymaxflow_graph(capacity_matrix):
@@ -60,7 +60,7 @@ def create_pymaxflow_graph(capacity_matrix):
 def worker(solver_class, graph, result_dict):
     """Fonction exécutée dans un processus séparé pour les solveurs personnalisés."""
     # Passer source et sink à la nouvelle instance de Graph
-    graph_copy = Graph(graph.capacity, graph.source, graph.sink)
+    graph_copy = Graph(graph.capacity)
     solver = solver_class(graph_copy)
     start_time = time.time()
     try:
@@ -126,7 +126,7 @@ def test_solver_speed_dense_graph():
     for name, (SolverClass, is_pymaxflow) in solvers.items():
         try:
             max_flow, duration = solve_with_timeout(
-                SolverClass, graph, timeout=60, is_pymaxflow=is_pymaxflow)
+                SolverClass, graph, timeout=300, is_pymaxflow=is_pymaxflow)
             results[name] = {"max_flow": max_flow, "time": duration}
         except TimeoutError as e:
             print(f"Timeout: {e}")

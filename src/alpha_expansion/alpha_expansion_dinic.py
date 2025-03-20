@@ -1,15 +1,11 @@
+from src.max_flow.solvers.dinic import DinicSolver
+from src.max_flow.graph import Graph
 import numpy as np
 import cv2
 import sys
 import os
 sys.path.append(os.path.abspath("../"))  # Ajoute le dossier parent
 
-from max_flow.graph import Graph
-from max_flow.solvers.dinic import DinicSolver
-
-import numpy as np
-import cv2
-from collections import deque
 
 class AlphaExpansionDinic:
     def __init__(self, image_path, source_weight=10, sink_weight=10, sigma=15, source_label=255):
@@ -20,13 +16,14 @@ class AlphaExpansionDinic:
         """
         self.image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if self.image is None:
-            raise ValueError(f"Impossible de charger l'image depuis {image_path}")
-        self.image = cv2.resize(self.image, (64,64))
+            raise ValueError(
+                f"Impossible de charger l'image depuis {image_path}")
+        self.image = cv2.resize(self.image, (64, 64))
 
         self.height, self.width = self.image.shape
         self.num_pixels = self.height * self.width
         # On ajoute 2 nœuds : source (indice 0) et puits (dernier indice)
-        self.N = self.num_pixels + 2  
+        self.N = self.num_pixels + 2
         self.source = 0
         self.sink = self.N - 1
         self.sigma = sigma
@@ -58,22 +55,25 @@ class AlphaExpansionDinic:
                 # L'indice du pixel dans le graphe est décalé de 1 (source=0)
                 idx = 1 + y * self.width + x
                 intensity = float(self.image[y, x])
-                
+
                 # Connexion avec les voisins (haut, bas, gauche, droite)
-                for dy, dx in [(-1,0), (1,0), (0,-1), (0,1)]:
+                for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                     ny, nx = y + dy, x + dx
                     if 0 <= ny < self.height and 0 <= nx < self.width:
                         n_idx = 1 + ny * self.width + nx
                         neighbor_intensity = float(self.image[ny, nx])
-                        weight = self.neighbor_weight(intensity, neighbor_intensity)
+                        weight = self.neighbor_weight(
+                            intensity, neighbor_intensity)
                         # Ajout d'arêtes bidirectionnelles
                         self.capacity[idx, n_idx] = int(weight * scale)
                         self.capacity[n_idx, idx] = int(weight * scale)
-                
+
                 # Calcul des coûts pour les terminaux :
-                intensity_label_current = float(self.segmented_image[y,x])
-                cost_source = int(abs(intensity - self.source_label) * self.source_weight * scale)
-                cost_sink = int(abs(intensity - intensity_label_current) * self.sink_weight * scale)
+                intensity_label_current = float(self.segmented_image[y, x])
+                cost_source = int(
+                    abs(intensity - self.source_label) * self.source_weight * scale)
+                cost_sink = int(
+                    abs(intensity - intensity_label_current) * self.sink_weight * scale)
                 self.capacity[self.source, idx] = cost_sink
                 self.capacity[idx, self.sink] = cost_source
 
@@ -103,13 +103,13 @@ class AlphaExpansionDinic:
                     # Si la capacité résiduelle est positive, alors v est accessible depuis u
                     if not visited[v] and self.solver.graph.capacity[u, v] - self.solver.flow[u, v] > 0:
                         stack.append(v)
-        
+
         # Les pixels sont aux indices de 1 à N-2
         for y in range(self.height):
             for x in range(self.width):
                 idx = 1 + y * self.width + x
                 if visited[idx]:
                     self.segmented_image[y, x] = self.source_label
-                    #print(self.segmented_image)
+                    # print(self.segmented_image)
 
         return self.segmented_image
